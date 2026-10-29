@@ -105,8 +105,14 @@ class DshAll(Star):
         # AstrBot 会把本插件的面板配置以 config 传进来；拿不到就退回空配置。
         self.config = config
         try:
+            filled = settings.prefill_from_fish(config) if config is not None else 0
+            if filled:
+                try:
+                    config.save_config()
+                    logger.info(f"[baige] 面板配置回填 {filled} 项（原为空，取自 fish 配置）")
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(f"[baige] 回填保存失败: {e}")
             settings.set_plugin_config(dict(config) if config else {})
-            logger.info(f"[baige] 面板配置 {len(config or {})} 项")
         except Exception as e:  # noqa: BLE001
             logger.warning(f"[baige] 读取面板配置失败: {e}")
             settings.set_plugin_config({})

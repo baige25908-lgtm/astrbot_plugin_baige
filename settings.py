@@ -164,3 +164,80 @@ def plugin_overrides() -> dict:
                 continue
         out[k] = v
     return out
+
+
+def _schema_tree() -> dict:
+    try:
+        return json.loads((Path(__file__).parent / "_conf_schema.json").read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _fish_values() -> dict:
+    try:
+        raw = json.loads(FISH_CONFIG.read_text(encoding="utf-8-sig"))
+    except Exception:
+        raw = {}
+    try:
+        raw.setdefault("owner_ids", "")
+        if not raw.get("owner_ids"):
+            raw["owner_ids"] = ""
+    except Exception:
+        pass
+    return raw if isinstance(raw, dict) else {}
+
+
+def _is_blank(v) -> bool:
+    if v is None:
+        return True
+    if isinstance(v, str):
+        return not v.strip()
+    return False
+
+
+def prefill_from_fish(config) -> int:
+    """把 fish 配置文件里真正生效的值回填到面板配置（只填空着的项）。
+
+    这样面板里看到的就是当前实际值，而不是一片空白；面板里手动改过的值不会被覆盖。
+    """
+    if not isinstance(config, dict):
+        return 0
+    schema = _schema_tree()
+    fish = _fish_values()
+    changed = 0
+
+    def walk(node_schema: dict, node_cfg: dict) -> None:
+        nonlocal changed
+        for key, spec in node_schema.items():
+            sub = _section_items(spec)
+            if sub is not None:
+                child = node_cfg.get(key)
+                if not isinstance(child, dict):
+                    child = {}
+                    node_cfg[key] = child
+                walk(sub, child)
+                continue
+            cur = node_cfg.get(key)
+            if key == "owner_qq":
+                if not cur:
+                    try:
+                        ids = str(fish.get("owner_ids") or "")
+                        first = ids.replace("，", ",").split(",")[0].strip()
+                        if first.isdigit():
+                            node_cfg[key] = int(first)
+                            changed += 1
+                    except Exception:
+                        pass
+                continue
+            if key not in fish:
+                continue
+            src = fish.get(key)
+            if _is_blank(cur) and not _is_blank(src):
+                node_cfg[key] = src
+                changed += 1
+
+    try:
+        walk(schema, config)
+    except Exception:
+        return changed
+    return changed
