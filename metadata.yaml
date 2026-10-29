@@ -1,8 +1,8 @@
 name: astrbot_plugin_baige
-version: 2.3.5
+version: 2.3.6
 display_name: 白鸽·一体
-short_desc: 学梗配图 / 闸门节流 / 体检自愈 / 账本余额，一体式插件
-desc: "学梗/配图/体检/账本/余额/分寸/运维/自更新 + 群聊唤醒闸门与节流，一体式插件。"
+short_desc: 学梗配图/看图兜底/闸门节流/体检自愈/账本余额，一体式插件
+desc: "学梗/配图/看图兜底/体检/账本/余额/分寸/运维/自更新 + 群聊唤醒闸门与节流，一体式插件。"
 author: 白鸽
 repo: https://github.com/baige25908-lgtm/astrbot_plugin_baige
 astrbot_version: ">=4.29,<5"
@@ -11,4 +11,5 @@ support_platforms:
 tags:
   - 学习
   - 配图
+  - 看图
   - 群聊管理

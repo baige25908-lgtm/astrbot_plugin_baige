@@ -10,6 +10,7 @@
   attach  按回复速度自适应主动频率
   ops     /stage/ops/*.flag 受控运维
   updater 每 60 秒从 /stage/_updates 自动同步插件
+  vision  发图前兜底取图（图床 rkey 失效时也能看见）
 
 数据目录：data/plugin_data/astrbot_plugin_baige/<component>/
 首次启动会把旧插件目录里的数据搬过来（.migrated 标记，只做一次）。
@@ -33,6 +34,7 @@ from . import meter as _meter
 from . import ops as _ops
 from . import updater as _updater
 from . import vibe as _vibe
+from . import vision as _vision
 from .fish import P_AFTER, P_ARCHIVE, P_CMD, P_GATE, P_HISTORY, P_MUTE, P_MUTE_RESULT, P_PACE_RESULT, P_SILENT
 
 PDATA = settings.PLUGIN_DATA.parent
@@ -130,6 +132,7 @@ class DshAll(Star):
         self.ops = _ops.Component(context)
         self.updater = _updater.Component(context)
         self.fish = _fish.Component(context)
+        self.vision = _vision.Component(context)
         self._parts = [
             ("vibe", self.vibe),
             ("media", self.media),
@@ -140,6 +143,7 @@ class DshAll(Star):
             ("ops", self.ops),
             ("updater", self.updater),
             ("fish", self.fish),
+            ("vision", self.vision),
         ]
 
     def _retire_old_plugins(self):
@@ -230,6 +234,11 @@ class DshAll(Star):
     @filter.on_llm_request(priority=P_HISTORY)
     async def _fish_history(self, event: AstrMessageEvent, request: ProviderRequest):
         await self.fish.on_trim_group_history(event, request)
+
+    # ---------- vision（发图前兜底取图）----------
+    @filter.on_llm_request(priority=20)
+    async def _vision_fix(self, event: AstrMessageEvent, request: ProviderRequest):
+        await self.vision.fix_request(event, request)
 
     # ---------- 钩子 ----------
     @filter.on_llm_request()
