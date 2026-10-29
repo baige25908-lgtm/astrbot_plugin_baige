@@ -16,8 +16,8 @@ from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, StarTools, register
 
 TZ = timezone(timedelta(hours=8))
-REPORT = settings.report("token-report.md")
-EXTRA = settings.report("meter-extra.jsonl")
+REPORT_NAME = "token-report.md"
+EXTRA_NAME = "meter-extra.jsonl"
 
 
 def _local_day(ts=None):
@@ -68,12 +68,13 @@ class Component:
 
     def _ingest_extra(self):
         """把 vibe 等插件写的行读进来（按行号增量）。"""
-        if not EXTRA.is_file():
+        extra = settings.report(EXTRA_NAME)
+        if not extra.is_file():
             return
         try:
             meta = self.data_dir / "extra_offset.txt"
             done = int(meta.read_text().strip() or 0) if meta.is_file() else 0
-            lines = EXTRA.read_text(encoding="utf-8", errors="ignore").splitlines()
+            lines = extra.read_text(encoding="utf-8", errors="ignore").splitlines()
             new = lines[done:]
             if not new:
                 return
@@ -153,7 +154,9 @@ class Component:
         while True:
             try:
                 await asyncio.to_thread(
-                    lambda: REPORT.write_text(self._report(), encoding="utf-8")
+                    lambda: settings.report(REPORT_NAME).write_text(
+                        self._report(), encoding="utf-8"
+                    )
                 )
             except Exception as e:
                 logger.warning(f"[dsh_meter] 写报表失败: {e}")
@@ -161,7 +164,7 @@ class Component:
 
     async def initialize(self):
         self._task = asyncio.create_task(self._loop())
-        logger.info("[dsh_meter] 已启动，每 10 分钟刷新 /stage/token-report.md")
+        logger.info("[dsh_meter] 已启动，每 10 分钟刷新 token-report.md")
 
     async def terminate(self):
         if self._task:

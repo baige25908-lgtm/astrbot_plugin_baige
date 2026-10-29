@@ -11,9 +11,9 @@
   },
   "bridge_dir": {
     "type": "string",
-    "description": "桥接目录，写报表/收运维 flag（默认 /stage）",
-    "default": "/stage",
-    "hint": "不是 Termux+proot 部署就改成你自己的路径，比如宿主机上的一个目录；留空用 /stage。"
+    "description": "桥接目录（仅自用：写报表/收运维 flag）",
+    "default": "",
+    "hint": "公开安装请留空。只有打开「安全与运维开关」里的对应开关时才会用到这个目录。"
   },
   "image_probability": {
     "type": "float",
@@ -276,7 +276,7 @@
         "type": "string",
         "description": "归档目录",
         "default": "",
-        "hint": "留空＝<AstrBot data>/chatlog。"
+        "hint": "留空＝本插件数据目录下的 chatlog/（推荐）。填绝对路径会写到插件目录以外，请自行确认。"
       }
     }
   },
@@ -356,9 +356,63 @@
       },
       "deploy_stage_dir": {
         "type": "string",
-        "description": "部署目录（运维通道自更新用）",
+        "description": "部署来源目录（仅自用运维指令用）",
         "default": "",
-        "hint": "留空用 bridge_dir。"
+        "hint": "留空＝「部署」指令不可用。"
+      }
+    }
+  },
+  "安全与运维开关": {
+    "type": "object",
+    "description": "安全与运维开关（默认全关；打开后才会碰插件目录以外的东西）",
+    "items": {
+      "enable_bridge_reports": {
+        "type": "bool",
+        "description": "自用：把报表/flag 写到 bridge_dir（如 /stage）",
+        "default": false,
+        "hint": "关着的时候报表都写在本插件数据目录；只有自用容器部署才需要打开。"
+      },
+      "enable_auto_update": {
+        "type": "bool",
+        "description": "允许从 _updates 自动同步插件代码",
+        "default": false,
+        "hint": "会整体替换 data/plugins 下的插件代码，等同本地热安装；只建议自用部署打开。"
+      },
+      "auto_update_allow": {
+        "type": "string",
+        "description": "自动更新白名单（插件目录名，逗号分隔）",
+        "default": "astrbot_plugin_baige"
+      },
+      "enable_ops_flags": {
+        "type": "bool",
+        "description": "允许运维 flag 通道（结束 QQ 进程 / 重启核心）",
+        "default": false,
+        "hint": "监听 bridge_dir/ops/*.flag，能 SIGTERM/SIGKILL QQ、用面板 token 重启核心。"
+      },
+      "enable_owner_cmd_admin": {
+        "type": "bool",
+        "description": "允许主人运维指令（重载/重启/部署/配置）",
+        "default": false
+      },
+      "enable_cross_plugin_write": {
+        "type": "bool",
+        "description": "允许读写其他插件的数据（贴纸库/TTS 库/emotion_core 配置）",
+        "default": false
+      },
+      "deepseek_api_key": {
+        "type": "string",
+        "description": "DeepSeek API key（查余额用，留空则不查）",
+        "default": ""
+      },
+      "read_host_llm_key": {
+        "type": "bool",
+        "description": "允许读取宿主 cmd_config.json 里的 LLM key",
+        "default": false
+      },
+      "enable_cleanup_legacy": {
+        "type": "bool",
+        "description": "清理历史旧插件目录（本插件自己的旧版本）",
+        "default": false
       }
     }
   }

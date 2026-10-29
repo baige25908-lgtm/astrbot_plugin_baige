@@ -17,7 +17,7 @@ AstrBot 拿到这种 URL 必然 400，图就丢了，模型只看得到文字。
 取图顺序：get_image(ref) → URL 里的 32 位 md5 去 QQ 缓存目录找同名文件
 → 最近 3 分钟缓存里只多出一张时认定是它。
 
-自测：放一个 `<bridge>/vision-selftest.flag`，重载插件后会拉最近群消息里的
+自测：放一个 `<插件数据目录>/vision-selftest.flag`，重载插件后会拉最近群消息里的
 图片做一次真取图，结果写在日志（[dsh_vision] 自测）。
 """
 import asyncio
@@ -42,6 +42,8 @@ from . import settings
 
 HASH_RE = re.compile(r"([0-9a-f]{32})")
 IMG_EXTS = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp")
+# 只读：NapCat/QQ 客户端自己落的图片缓存，用来在 get_image 也拿不到时按 md5 兜底。
+# 不写、不删、不修改这里的任何文件。
 CACHE_ROOTS = ("/root/.config/QQ", os.path.expanduser("~/.config/QQ"))
 DIR_PATTERNS = (
     "*/nt_data/Pic/*/Ori",
@@ -348,13 +350,18 @@ class Component:
             + ("接管图片转换 + " if installed else "")
             + "发图前兜底 / 缓存 md5 / 最新一张"
         )
-        flag = settings.bridge_dir() / "vision-selftest.flag"
-        try:
-            if flag.is_file():
-                flag.unlink()
-                self._task = asyncio.create_task(self._delayed_selftest())
-        except Exception:
-            pass
+        # 自测开关：默认只看本插件数据目录；自用部署也可放 bridge_dir 里
+        flags = [settings.PLUGIN_DATA / "vision-selftest.flag"]
+        if settings.bridge_io_enabled() or settings.ops_enabled():
+            flags.append(settings.bridge_dir() / "vision-selftest.flag")
+        for flag in flags:
+            try:
+                if flag.is_file():
+                    flag.unlink()
+                    self._task = asyncio.create_task(self._delayed_selftest())
+                    break
+            except Exception:
+                continue
 
     async def _delayed_selftest(self):
         await asyncio.sleep(10)

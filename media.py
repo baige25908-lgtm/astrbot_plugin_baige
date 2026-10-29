@@ -32,9 +32,16 @@ PER_CATEGORY_MAX = 300
 HARVEST_PER_RUN = 6
 UA = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/120 Safari/537.36"
 
+# 下面两个属于**别人的插件目录**，默认不读也不写：
+# 只有打开面板里的「允许读写其他插件数据」才参与（读 stealer 的图、往天使之笑贴纸库镜像）。
 STEALER_DIR = settings._DATA / "plugin_data" / "astrbot_plugin_stealer" / "categories"
 # 天使之笑(astrbot_plugin_angel_smile) 的贴纸库：目录名=贴纸名，里面的图=同一贴纸的多个变体
 SMILE_MEME_DIR = settings._DATA / "plugin_data" / "astrbot_plugin_angel_smile" / "memes"
+
+
+def _ext_sources() -> list:
+    """可读的「别人的」图库；没打开跨插件开关时为空。"""
+    return [STEALER_DIR] if settings.cross_plugin_enabled() else []
 CATEGORIES = [
     "angry", "confused", "cry", "disgust", "dumb", "embarrassed",
     "excitement", "fear", "happy", "love", "sad", "shy", "sigh",
@@ -185,7 +192,9 @@ class Component:
         return p
 
     def _mirror(self, cat, h, ext, raw):
-        """同步一份到天使之笑的贴纸库（:cat: 这样就能用它发出来）。"""
+        """同步一份到天使之笑的贴纸库（:cat: 这样就能用它发出来）。默认关闭。"""
+        if not settings.cross_plugin_enabled():
+            return
         try:
             d = SMILE_MEME_DIR / cat
             d.mkdir(parents=True, exist_ok=True)
@@ -198,7 +207,7 @@ class Component:
     def _seed_smile_from_stealer(self):
         """第一次跑时，把 stealer 已有的图灌进天使之笑，别让它空着。"""
         flag = self.data_dir / ".seeded_smile_v2"
-        if flag.exists():
+        if flag.exists() or not settings.cross_plugin_enabled():
             return
         n = 0
         try:
@@ -234,7 +243,7 @@ class Component:
     # ---------- 选图 ----------
     def _files(self, cat):
         out = []
-        for base in (self.lib / cat, STEALER_DIR / cat):
+        for base in [self.lib / cat] + [d / cat for d in _ext_sources()]:
             if base.is_dir():
                 out += [
                     p

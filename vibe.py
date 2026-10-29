@@ -40,9 +40,15 @@ def _now_local():
     return datetime.now(LOCAL_TZ) if LOCAL_TZ else datetime.now()
 QUIET_START, QUIET_END = 3, 8
 UA = "Mozilla/5.0 (Linux; Android 14; MIUI) AppleWebKit/537.36 Chrome/120 Safari/537.36"
-CHATLOG_DIR = settings.CHATLOG_DIR
+def _chatlog_dir():
+    """学梗用的聊天记录目录：面板 archive_dir > 本插件数据目录下的 chatlog。"""
+    raw = str(settings._c("archive_dir") or "").strip()
+    return Path(raw) if raw else (settings.PLUGIN_DATA / "fish" / "chatlog")
+
+
+CHATLOG_DIR = _chatlog_dir()
 INJECT_MAX_CHARS = 480
-BALANCE_FILE = settings.report("balance.json")
+BALANCE_NAME = "balance.json"
 MIN_BALANCE = 0.5  # 低于这个数就暂停一切主动 LLM 调用（学习/复盘），把余额留给聊天
 HUMAN_RULES = (
     "像人一样说话：句子短、别写小作文；少用「首先/其次/总之/希望对你有帮助」这类 AI 腔；"
@@ -52,7 +58,7 @@ HUMAN_RULES = (
 QUOTE_CHANCE = 0.2
 # 模型回忆模式默认关闭：只靠真实语料慢慢长，别自己编
 RECALL_QUOTES = False
-EXTRA_QUOTES = settings.report("quotes-extra.txt")
+EXTRA_QUOTES_NAME = "quotes-extra.txt"
 # 手写精选：格式 "台词|出处"
 CURATED = [
     ("我的小鱼，你醒了，还认识早晨吗？", "魁拔"),
@@ -141,11 +147,12 @@ class Component:
             return []
 
     def _seed_curated(self):
-        """内置精选 + /stage/quotes-extra.txt（一行一条，允许「台词|出处」）"""
+        """内置精选 + quotes-extra.txt（一行一条，允许「台词|出处」）"""
         items = [{"hitokoto": q, "from": src, "from_who": ""} for q, src in CURATED]
         try:
-            if EXTRA_QUOTES.is_file():
-                for line in EXTRA_QUOTES.read_text(encoding="utf-8", errors="ignore").splitlines():
+            extra_quotes = settings.report(EXTRA_QUOTES_NAME)
+            if extra_quotes.is_file():
+                for line in extra_quotes.read_text(encoding="utf-8", errors="ignore").splitlines():
                     line = line.strip()
                     if not line or line.startswith("#"):
                         continue
@@ -174,8 +181,10 @@ class Component:
             return []
 
     def _approve_from_file(self):
-        """/stage/quotes-approve.txt 一行一条，命中即转为已核实。"""
-        f = Path("/stage/quotes-approve.txt")
+        """quotes-approve.txt 一行一条，命中即转为已核实（自用通道，需打开 bridge 开关）。"""
+        f = settings.bridge_dir() / "quotes-approve.txt"
+        if not settings.bridge_io_enabled():
+            return 0
         if not f.is_file():
             return 0
         n = 0
@@ -293,7 +302,7 @@ class Component:
             return []
 
     def _today_dialog(self, limit=140):
-        f = CHATLOG_DIR / f"chat-{_now_local().strftime('%Y-%m-%d')}.jsonl"
+        f = _chatlog_dir() / f"chat-{_now_local().strftime('%Y-%m-%d')}.jsonl"
         if not f.is_file():
             return ""
         lines = []
@@ -508,7 +517,7 @@ class Component:
         texts = []
         try:
             for days in (0, 1):
-                f = CHATLOG_DIR / f"chat-{(datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')}.jsonl"
+                f = _chatlog_dir() / f"chat-{(datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')}.jsonl"
                 if not f.is_file():
                     continue
                 for line in f.read_text(encoding="utf-8", errors="ignore").splitlines():
@@ -616,7 +625,7 @@ class Component:
     def _balance_ok(self):
         """余额是否够用。读不到就当作够用，别因为查不到余额把功能停了。"""
         try:
-            d = json.loads(BALANCE_FILE.read_text(encoding="utf-8"))
+            d = json.loads(settings.report(BALANCE_NAME).read_text(encoding="utf-8"))
             total = float(d.get("total"))
             return total >= MIN_BALANCE, total
         except Exception:
@@ -677,7 +686,7 @@ class Component:
             await asyncio.sleep(INTERVAL_SECONDS)
 
     def _dump_snapshot(self):
-        """把当前热梗/语气卡写一份到 /stage，方便外面查看（只读用途）。"""
+        """把当前热梗/语气卡写一份快照（默认写在本插件数据目录，可用 bridge 开关改到 /stage）。"""
         try:
             rows = self._top_memes(20)
             style = self._kv_get("style", "")

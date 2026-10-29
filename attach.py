@@ -6,6 +6,9 @@
 - 连续 2 次你 <10 分钟就回 -> 恢复 12 条、间隔 45 分钟
 - 每天每个方向最多调一次，避免抖动
 所有调整写日志，可人工回滚。
+
+⚠️ 调节方式是**改写另一个插件（emotion_core）的面板配置**，默认关闭；
+需要在面板里打开「允许读写其他插件数据」才会真的去改。
 """
 import asyncio
 import json
@@ -22,8 +25,8 @@ from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, StarTools, register
 
 TZ = timezone(timedelta(hours=8))
-TOKEN_FILE = settings.report(".panel_token")
-LOG = settings.report("attach.log")
+TOKEN_FILE = lambda: settings.bridge_dir() / ".panel_token"  # noqa: E731
+LOG = lambda: settings.report("attach.log")  # noqa: E731
 SLOW_GAP = 2 * 3600
 FAST_GAP = 600
 
@@ -67,7 +70,7 @@ class Component:
 
     def _log(self, msg):
         try:
-            with LOG.open("a", encoding="utf-8") as f:
+            with LOG().open("a", encoding="utf-8") as f:
                 f.write(
                     f"[{datetime.now(TZ).strftime('%F %T')}] {msg}\n"
                 )
@@ -131,12 +134,15 @@ class Component:
                     await self._notify("你回得快，她把主动频率调回来了。")
 
     async def _apply(self, profile):
-        """改 emotion_core 的主动配置。"""
+        """改 emotion_core 的主动配置（默认关闭，属跨插件写入）。"""
+        if not settings.cross_plugin_enabled():
+            self._log("跨插件写入未开启，跳过对 emotion_core 的调整")
+            return False
         if self._busy:
             return False
         self._busy = True
         try:
-            tok = TOKEN_FILE.read_text(encoding="utf-8").strip()
+            tok = TOKEN_FILE().read_text(encoding="utf-8").strip()
         except Exception:
             self._busy = False
             self._log("没有面板 token，跳过调整")

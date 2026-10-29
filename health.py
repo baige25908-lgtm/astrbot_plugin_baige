@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """白鸽·体检（dsh_health）
 
-每 10 分钟检查一次，出问题就私聊主人 + 写 /stage/health-report.md。
+每 10 分钟检查一次，出问题就私聊主人 + 写 health-report.md（默认落在本插件数据目录）。
 检查项：
   1) 三个「看图」核心补丁是否还在（AstrBot 升级会覆盖）
-  2) /stage/_updates 是否可读（自更新链路）
+  2) 自更新目录是否可读（仅在自动更新打开时检查）
   3) 素材库体积 / 文件数
   4) 可用内存
   5) vibe 的 sqlite 是否可写
@@ -23,7 +23,7 @@ from astrbot.api.star import Context, Star, StarTools, register
 OWNER_QQ = settings.owner_qq()
 INTERVAL = 600
 COOLDOWN = 6 * 3600
-REPORT = settings.report("health-report.md")
+REPORT_NAME = "health-report.md"
 
 PATCHES = [
     (str(settings.ROOT / "astrbot/builtin_stars/astrbot/main.py"), "_dsh_fetch_image", "看图补丁1（当前消息取图）"),
@@ -36,7 +36,6 @@ PDATA = settings.PLUGIN_DATA.parent
 PLUGINS = settings._DATA / "plugins"
 ALL_DIR = settings.PLUGIN_DATA
 AUTO_ROLLBACK = False  # 合并后由单一插件承担，自动回滚风险大于收益，默认只告警
-BACKUP = PDATA / "dsh_backups"
 # (组件名, 心跳最长允许的年龄秒)
 WATCH = [
     ("updater", 900),
@@ -81,7 +80,7 @@ class Component:
             except Exception as e:
                 problems.append(f"{label} 读不到：{e}")
 
-        if not settings.bridge_dir().joinpath("_updates").is_dir():
+        if settings.auto_update_enabled() and not (settings.bridge_dir() / "_updates").is_dir():
             problems.append("自更新目录不可读（部署目录可能被搬动）")
 
         try:
@@ -175,7 +174,7 @@ class Component:
         for name, _age in WATCH:
             if not any(name in p for p in problems):
                 continue
-            prev = BACKUP / "astrbot_plugin_baige"
+            prev = settings.backups_dir() / "plugins" / "astrbot_plugin_baige"
             dst = PLUGINS / "astrbot_plugin_baige"
             if not prev.is_dir():
                 continue
@@ -194,7 +193,7 @@ class Component:
         try:
             import aiohttp
 
-            token = Path("/stage/.panel_token").read_text(encoding="utf-8").strip()
+            token = (settings.bridge_dir() / ".panel_token").read_text(encoding="utf-8").strip()
             async with aiohttp.ClientSession() as sess:
                 await sess.post(
                     "http://127.0.0.1:6185/api/v1/system/restart",
@@ -225,7 +224,7 @@ class Component:
         lines.append("全部正常 ✓" if not problems else f"发现 {len(problems)} 项问题：")
         lines += [f"- {p}" for p in problems]
         try:
-            REPORT.write_text("\n".join(lines), encoding="utf-8")
+            settings.report(REPORT_NAME).write_text("\n".join(lines), encoding="utf-8")
         except Exception:
             pass
 

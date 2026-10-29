@@ -18,6 +18,7 @@
   发送后          归档机器人回复 1e8（只读，不干扰）
 """
 
+import aiohttp
 import asyncio
 import json
 import os
@@ -27,7 +28,6 @@ import shutil
 import sqlite3
 import sys
 import time
-import urllib.request
 from pathlib import Path
 
 from . import settings
@@ -292,11 +292,8 @@ class Component:
         self.catchup_file = os.path.join(self.state_dir, "catchup.json")
         self.silent_file = os.path.join(self.state_dir, "silent.json")
         self._tts_studio_db = str(self.config.get("tts_studio_db") or "").strip()
-        self._deploy_stage = str(
-            self.config.get("deploy_stage_dir")
-            or settings.bridge_dir()
-            or ""
-        ).strip()
+        # 部署来源目录：只从面板配置读；留空表示不启用「部署」指令
+        self._deploy_stage = str(self.config.get("deploy_stage_dir") or "").strip()
 
         # ---------------- 节流 + 唤醒 ----------------
         self.min_seconds = _num(self.config.get("pace_min_seconds"), 120.0)
@@ -767,13 +764,17 @@ class Component:
             pass
 
     @staticmethod
-    def _probe(port: int) -> str:
+    async def _probe(port: int) -> str:
+        """探一下本机端口，返回状态码；不阻塞事件循环。"""
         try:
-            with urllib.request.urlopen("http://127.0.0.1:%d/" % port, timeout=3) as r:
-                return str(r.status)
-        except Exception as e:
-            code = getattr(e, "code", 0) or 0
-            return str(code) if code else "000"
+            timeout = aiohttp.ClientTimeout(total=3)
+            async with aiohttp.ClientSession(timeout=timeout) as sess:
+                async with sess.get("http://127.0.0.1:%d/" % port) as r:
+                    return str(r.status)
+        except aiohttp.ClientResponseError as e:
+            return str(e.status or "000")
+        except Exception:
+            return "000"
 
     async def _reply(self, event, text: str) -> None:
         try:
@@ -968,9 +969,11 @@ class Component:
             )
         except Exception:
             n_plugin = -1
+        c1 = await self._probe(6185)
+        c2 = await self._probe(6099)
         return "AstrBot 6185=%s  NapCat 6099=%s\n负载 %s\n插件目录 %d 个" % (
-            self._probe(6185),
-            self._probe(6099),
+            c1,
+            c2,
             " ".join(load),
             n_plugin,
         )
@@ -1103,13 +1106,16 @@ class Component:
 
     @staticmethod
     def _help() -> str:
+        admin = (
+            "@我 重载 <插件名> / @我 重启 / @我 部署 <插件名> / @我 配置 max_turns=10\n"
+            "（以上四个要面板里打开「允许主人运维指令」）\n"
+            if settings.owner_admin_enabled()
+            else "运维指令（重载/重启/部署/配置）默认关闭\n"
+        )
         return (
             "@我 状态\n"
-            "@我 重载 <插件名>（单个插件，安全）\n"
-            "@我 重启（整个进程，约 15 秒，QQ 不掉线）\n"
-            "@我 部署 <插件名>（从 Download/astrbot-setup/plugin-<名字>）\n"
-            "@我 配置 max_turns=10\n"
-            "@我 撤回（引用某条 = 只撤那一条；不引用 = 撤我最近 1 条）\n"
+            + admin
+            + "@我 撤回（引用某条 = 只撤那一条；不引用 = 撤我最近 1 条）\n"
             "@我 撤回 3（撤我最近 3 条）\n"
             "群聊静默：@我 停一下 / @我 可以说话了"
         )
@@ -1130,6 +1136,18 @@ class Component:
             if not m:
                 return
             cmd, arg = m.group(1), m.group(2).strip()
+
+            # 重载/重启/部署/配置 属于运维级操作：默认关闭，需要面板里显式打开
+            if cmd in ("重载", "重启", "部署", "配置") and not settings.owner_admin_enabled():
+                self._audit(body, "disabled: owner_admin_enabled=false")
+                event.clear_result()
+                event.stop_event()
+                await self._reply(
+                    event,
+                    "这四个指令（重载/重启/部署/配置）默认关闭；"
+                    "要用手动打开面板里的「允许主人运维指令」。",
+                )
+                return
 
             if cmd == "重启":
                 msg = "✅ 正在重启 AstrBot（约 15 秒后恢复，QQ 不掉线、不用扫码）"
@@ -1414,7 +1432,13 @@ class Component:
 
     # ============================================== 4) 节流 + 唤醒闸门
     def _set_session_tts(self, umo: str, probability: float) -> None:
-        """改写 mimo TTS 在该会话下的自动语音概率（它的每轮触发门）。"""
+        """改写 mimo TTS 在该会话下的自动语音概率（它的每轮触发门）。
+
+        这是对**另一个插件**数据库的写入，默认关闭，需要显式打开
+        「允许读写其他插件数据」开关才会生效。
+        """
+        if not settings.cross_plugin_enabled():
+            return
         if not self._tts_studio_db or not os.path.exists(self._tts_studio_db):
             return
         try:

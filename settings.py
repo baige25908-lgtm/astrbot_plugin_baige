@@ -22,26 +22,110 @@ CMD_CONFIG = _DATA / "cmd_config.json"
 CHATLOG_DIR = _DATA / "chatlog"
 
 _cfg = {}
+_flat_cache = None
 
 
 def set_plugin_config(cfg: dict | None) -> None:
     """由 main.py 在启动时注入插件配置。"""
-    global _cfg
+    global _cfg, _flat_cache
     _cfg = dict(cfg or {})
+    _flat_cache = None
+
+
+def _flat() -> dict:
+    """把分组配置拍平成一维（面板里新的开关都在分组里）。"""
+    global _flat_cache
+    if _flat_cache is None:
+        out = {}
+        try:
+            _flatten(_cfg, out)
+        except Exception:
+            out = {}
+        _flat_cache = out
+    return _flat_cache
 
 
 def _c(key, default=None):
-    return _cfg.get(key, default)
+    """先找顶层，再找分组里的同名键。"""
+    if isinstance(_cfg, dict) and key in _cfg:
+        return _cfg.get(key)
+    return _flat().get(key, default)
 
 
 def bridge_dir() -> Path:
-    """/stage 这类桥接目录（对外写报表、收 flag 用）。"""
-    raw = _c("bridge_dir") or os.environ.get("BAIGE_BRIDGE") or "/stage"
+    """桥接目录（自用部署才有意义）。没配就退回插件数据目录，绝不落到 CWD。"""
+    raw = str(_c("bridge_dir") or os.environ.get("BAIGE_BRIDGE") or "").strip()
+    if not raw:
+        return PLUGIN_DATA / "bridge"
     return Path(raw)
 
 
+def flag(name: str, default: bool = False) -> bool:
+    """读一个开关（面板里配的布尔/字符串都认）。"""
+    v = _c(name)
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, str):
+        t = v.strip().lower()
+        if not t:
+            return default
+        if t in ("1", "true", "on", "yes", "开", "是"):
+            return True
+        if t in ("0", "false", "off", "no", "关", "否"):
+            return False
+        return default
+    if v is None:
+        return default
+    return bool(v)
+
+
+# ---- 安全开关：默认一律关，公开安装时不会碰插件目录以外的任何东西 ----
+def bridge_io_enabled() -> bool:
+    """自用部署才把报表/flags 写到 bridge_dir（/stage）。"""
+    return flag("enable_bridge_reports")
+
+
+def cross_plugin_enabled() -> bool:
+    """读写别的插件目录/数据库（天使之笑贴纸库、stealer、mimo TTS）。"""
+    return flag("enable_cross_plugin_write")
+
+
+def auto_update_enabled() -> bool:
+    return flag("enable_auto_update")
+
+
+def ops_enabled() -> bool:
+    return flag("enable_ops_flags")
+
+
+def owner_admin_enabled() -> bool:
+    return flag("enable_owner_cmd_admin")
+
+
+def reports_dir() -> Path:
+    """报表默认落在本插件数据目录里；自用部署可选写到 bridge_dir。"""
+    if bridge_io_enabled():
+        return bridge_dir()
+    return PLUGIN_DATA / "reports"
+
+
 def report(name: str) -> Path:
-    return bridge_dir() / name
+    d = reports_dir()
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+    return d / name
+
+
+def backups_dir() -> Path:
+    """插件/配置备份，固定在本插件数据目录内。"""
+    d = PLUGIN_DATA / "backups"
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+    return d
 
 
 def owner_qq() -> int:

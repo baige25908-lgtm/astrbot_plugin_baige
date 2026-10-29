@@ -1,12 +1,17 @@
 # -*- coding: utf-8 -*-
 """白鸽·运维（dsh_ops）
 
-只用 /stage/ops/ 下的 flag 文件触发，白名单命令：
+⚠️ 安全默认：**关闭**。这些动作（SIGTERM/SIGKILL QQ 进程、用面板 token
+重启核心）只适合作者自己的容器部署；公开安装时组件不启动。
+
+打开方式：面板 → 安全与运维开关 → 允许运维 flag 通道。
+
+打开后用 <bridge_dir>/ops/*.flag 触发，白名单只有三条：
   restart-qq       → 重启 QQ 进程（NapCat 会重新生成二维码）
   restart-astrbot  → 调面板 API 软重启核心
-  qr-status        → 把 NapCat 登录状态写到 /stage/qr-status.txt
+  qr-status        → 把 QQ 进程/二维码状态写到 <bridge_dir>/qr-status.txt
 
-所有动作写 /stage/ops.log，flag 处理完即删。
+所有动作写 <bridge_dir>/ops.log，flag 处理完即删。
 """
 import asyncio
 import json
@@ -19,17 +24,28 @@ import aiohttp
 
 from . import settings
 from astrbot.api import logger
-from astrbot.api.star import Context, Star, register
+from astrbot.api.star import Context
 
-OPS = settings.bridge_dir() / "ops"
-LOG = settings.bridge_dir() / "ops.log"
-TOKEN = settings.bridge_dir() / ".panel_token"
 QQ_MARK = "qq -q " + (settings.qq_account() or "")
+
+
+def _ops_dir() -> Path:
+    return settings.bridge_dir() / "ops"
+
+
+def _log_path() -> Path:
+    return settings.bridge_dir() / "ops.log"
+
+
+def _token_path() -> Path:
+    return settings.bridge_dir() / ".panel_token"
 
 
 def _log(msg):
     try:
-        with LOG.open("a", encoding="utf-8") as f:
+        p = _log_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with p.open("a", encoding="utf-8") as f:
             f.write(f"[{time.strftime('%F %T')}] {msg}\n")
     except Exception:
         pass
@@ -80,7 +96,7 @@ class Component:
 
     async def _restart_core(self):
         try:
-            tok = TOKEN.read_text(encoding="utf-8").strip()
+            tok = _token_path().read_text(encoding="utf-8").strip()
             async with aiohttp.ClientSession() as s:
                 async with s.post(
                     "http://127.0.0.1:6185/api/v1/system/restart",
@@ -93,11 +109,11 @@ class Component:
 
     async def _qr_status(self):
         out = {"ts": int(time.time()), "qq_pids": _find_qq_pids()}
-        qr = Path("/stage/qrcode.png")
+        qr = settings.bridge_dir() / "qrcode.png"
         out["qrcode_mtime"] = int(qr.stat().st_mtime) if qr.is_file() else 0
         out["qrcode_size"] = qr.stat().st_size if qr.is_file() else 0
         try:
-            Path("/stage/qr-status.txt").write_text(
+            (settings.bridge_dir() / "qr-status.txt").write_text(
                 json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8"
             )
             _log(f"登录状态已导出: {out}")
@@ -105,9 +121,10 @@ class Component:
             _log(f"导出失败: {e}")
 
     async def _tick(self):
-        if not OPS.is_dir():
+        d = _ops_dir()
+        if not d.is_dir():
             return
-        for flag in sorted(OPS.glob("*.flag")):
+        for flag in sorted(d.glob("*.flag")):
             name = flag.stem
             try:
                 flag.unlink()
@@ -134,9 +151,16 @@ class Component:
             await asyncio.sleep(15)
 
     async def initialize(self):
-        OPS.mkdir(parents=True, exist_ok=True)
+        if not settings.ops_enabled():
+            logger.warning(
+                "[dsh_ops] 运维 flag 通道已关闭（默认关）。它能结束 QQ 进程、"
+                "用面板 token 重启核心，只适合自用容器部署；"
+                "确需使用请在面板里打开「允许运维 flag 通道」。"
+            )
+            return
+        _ops_dir().mkdir(parents=True, exist_ok=True)
         self._task = asyncio.create_task(self._loop())
-        logger.info("[dsh_ops] 已启动，监听 /stage/ops/*.flag")
+        logger.warning(f"[dsh_ops] 运维通道已打开，监听 {_ops_dir()}/*.flag")
 
     async def terminate(self):
         if self._task:

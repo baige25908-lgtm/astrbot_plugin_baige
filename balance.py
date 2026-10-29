@@ -3,13 +3,17 @@
 
 - QQ 里发 `/余额`（或 `/查余额`）直接回当前 DeepSeek 余额
 - 每小时自检，低于阈值私聊提醒（12 小时最多一次）
-- 结果同时写 /stage/balance.json，方便外部查看
+- 结果写在本插件数据目录（打开「自用：报表写到 bridge_dir」后才写 /stage）
 
-API key 从 AstrBot 的 cmd_config.json 里读（provider_sources 中 provider=deepseek），
-所以换 key 不需要改这个插件。
+API key 的来源（按顺序）：
+  1) 面板配置 `deepseek_api_key`（推荐，公开安装就用这个）
+  2) 环境变量 DEEPSEEK_API_KEY
+  3) 仅当打开「允许读取宿主 LLM 配置」时，才去读 AstrBot 的 cmd_config.json
+没配 key 就只会回「没配 key」，不会去翻宿主配置。
 """
 import asyncio
 import json
+import os
 import time
 from pathlib import Path
 
@@ -22,7 +26,7 @@ from astrbot.api.star import Context, Star, StarTools, register
 
 CONFIG = settings.CMD_CONFIG
 BALANCE_API = "https://api.deepseek.com/user/balance"
-OUT = settings.report("balance.json")
+
 OWNER_QQ = settings.owner_qq()
 LOW_THRESHOLD = 5.0      # 仅用于统计，不再据此私聊
 ALERT_ENABLED = False    # 低余额私聊提醒：关闭（用户要求）
@@ -55,6 +59,14 @@ class Component:
 
     # ---------- 取 key ----------
     def _api_key(self):
+        key = str(settings._c("deepseek_api_key") or "").strip()
+        if key:
+            return key
+        key = str(os.environ.get("DEEPSEEK_API_KEY") or "").strip()
+        if key:
+            return key
+        if not settings.flag("read_host_llm_key"):
+            return ""
         try:
             cfg = json.loads(CONFIG.read_text(encoding="utf-8-sig"))
             for src in cfg.get("provider_sources", []):
@@ -65,10 +77,8 @@ class Component:
                     if isinstance(keys, str) and keys:
                         return keys
         except Exception as e:
-            logger.warning(f"[dsh_balance] 读配置失败: {e}")
-        import os
-
-        return os.environ.get("DEEPSEEK_API_KEY", "")
+            logger.warning(f"[dsh_balance] 读宿主配置失败: {e}")
+        return ""
 
     async def _fetch(self):
         key = self._api_key()
@@ -120,7 +130,8 @@ class Component:
         try:
             infos = (data or {}).get("balance_infos") or [{}]
             total = float(infos[0].get("total_balance") or 0)
-            OUT.write_text(
+            out = settings.report("balance.json")
+            out.write_text(
                 json.dumps(
                     {
                         "ts": int(time.time()),
@@ -174,8 +185,13 @@ class Component:
             await asyncio.sleep(CHECK_INTERVAL)
 
     async def initialize(self):
+        if not self._api_key():
+            logger.warning(
+                "[dsh_balance] 没有配置 deepseek_api_key，余额查询不可用"
+                "（面板里填 key，或打开「允许读取宿主 LLM 配置」）"
+            )
         self._task = asyncio.create_task(self._loop())
-        logger.info("[dsh_balance] 已启动：QQ 里发 /余额 可查，低余额自动提醒")
+        logger.info("[dsh_balance] 已启动：QQ 里发 /余额 可查（低余额提醒关闭）")
 
     async def terminate(self):
         if self._task:

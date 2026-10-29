@@ -6,10 +6,14 @@
   media   45% 情绪配图 + 收图扩库 + 同步天使之笑
   health  10 分钟体检 + 心跳 + 版本哨兵
   meter   token 账本
-  balance /余额 查询 + 余额落到 /stage/balance.json
-  attach  按回复速度自适应主动频率
-  ops     /stage/ops/*.flag 受控运维
-  updater 每 60 秒从 /stage/_updates 自动同步插件
+  balance /余额 查询 + 余额报表
+  attach  按回复速度自适应主动频率（需打开跨插件开关）
+  ops     受控运维 flag 通道（默认关闭）
+  updater 从 _updates 自动同步插件（默认关闭）
+
+安全默认：所有「碰插件目录以外东西」的能力（bridge 报表、自动更新、
+运维 flag、主人运维指令、跨插件读写、读宿主 LLM key）默认全部关闭，
+需要在面板「安全与运维开关」里逐个打开。
   vision  发图前兜底取图（图床 rkey 失效时也能看见）
 
 数据目录：data/plugin_data/astrbot_plugin_baige/<component>/
@@ -147,7 +151,13 @@ class DshAll(Star):
         ]
 
     def _retire_old_plugins(self):
-        """合并完成后，把旧的 8 个插件目录删掉（只做一次，旧版本还在 dsh_backups 里）。"""
+        """合并完成后，把旧的 8 个（本插件自己的）旧目录删掉。
+
+        这是对 data/plugins 的删除操作，默认不执行；自用部署可以在面板里
+        打开「清理历史旧插件目录」跑一次。
+        """
+        if not settings.flag("enable_cleanup_legacy"):
+            return
         flag = self.base / ".legacy_removed_v3"
         if flag.is_file():
             return

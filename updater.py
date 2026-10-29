@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
 """白鸽·自更新（dsh_updater）
 
-作用：把「外部能写的目录」(/stage/_updates，对应手机上的
-/sdcard/白鸽宝宝/astrbot-setup/_updates) 里的插件版本，自动同步到
-data/plugins，省掉每次手动跑安装脚本。
+⚠️ 安全默认：**关闭**。公开安装时这个组件根本不会启动，因为「从外部可写目录
+整体替换 data/plugins 下的代码」等价于本地热安装任意插件。只有在你自己的机器上、
+面板里显式打开「允许从 _updates 自动同步」之后才会工作。
 
-规则：
-  - 只处理 /stage/_updates 下的一级子目录；
+打开后规则：
+  - 只处理 bridge_dir/_updates 下的一级子目录；
+  - 目录名必须在白名单（`auto_update_allow`，逗号分隔）里，默认只有本插件；
   - 版本号取自子目录的 VERSION 文件（没有就取 metadata.yaml 的 version）；
-  - 与已安装目录的 VERSION 不一致才覆盖；
-  - 目录名必须以 astrbot_plugin_ 开头，避免乱写。
+  - 与已安装目录的 VERSION 不一致才覆盖，覆盖前把旧版备份到本插件数据目录。
 """
 import asyncio
 import shutil
@@ -20,10 +20,21 @@ from . import settings
 from astrbot.api import logger
 from astrbot.api.star import Context, Star, StarTools, register
 
-SRC = settings.bridge_dir() / "_updates"
+SRC = lambda: settings.bridge_dir() / "_updates"  # noqa: E731  仅在打开开关后使用
 DST = settings._DATA / "plugins"
-BACKUP = settings.PLUGIN_DATA.parent / "dsh_backups"
 INTERVAL = 60
+DEFAULT_ALLOW = "astrbot_plugin_baige"
+
+
+def _allow_list() -> set:
+    raw = str(settings._c("auto_update_allow") or DEFAULT_ALLOW)
+    return {x.strip() for x in raw.replace("，", ",").split(",") if x.strip()}
+
+
+def _backup_dir():
+    d = settings.backups_dir() / "plugins"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
 
 
 def _compile_check(d: Path):
@@ -60,18 +71,21 @@ class Component:
         self._task = None
 
     async def _sync_once(self):
-        if not SRC.is_dir():
+        src_root = SRC()
+        if not src_root.is_dir():
             return
-        for src in sorted(SRC.iterdir()):
+        allow = _allow_list()
+        for src in sorted(src_root.iterdir()):
             if not src.is_dir() or not src.name.startswith("astrbot_plugin_"):
+                continue
+            if src.name not in allow:
                 continue
             new_v = _version(src)
             dst = DST / src.name
             old_v = _version(dst) if dst.is_dir() else ""
             if dst.is_dir() and new_v and new_v == old_v:
                 continue
-            BACKUP.mkdir(parents=True, exist_ok=True)
-            prev = BACKUP / src.name
+            prev = _backup_dir() / src.name
             try:
                 # 先留一份旧版，坏了能回滚
                 if dst.is_dir():
@@ -98,7 +112,7 @@ class Component:
                 tmp.rename(dst)
                 logger.info(f"[updater] 已同步 {src.name} {old_v or '-'} -> {new_v or '-'}")
                 try:
-                    (SRC / ".last").write_text(
+                    (src_root / ".last").write_text(
                         f"{time.strftime('%F %T')} {src.name} {new_v}", encoding="utf-8"
                     )
                 except Exception:
@@ -127,8 +141,17 @@ class Component:
             await asyncio.sleep(INTERVAL)
 
     async def initialize(self):
+        if not settings.auto_update_enabled():
+            logger.warning(
+                "[updater] 自动更新已关闭（默认关）。它会在不确认的情况下整体替换"
+                " data/plugins 下的插件代码，属于危险操作；"
+                "确需使用请在面板里打开「允许从 _updates 自动同步」，并保持白名单只含本插件。"
+            )
+            return
         self._task = asyncio.create_task(self._loop())
-        logger.info("[updater] 已启动，每 60 秒检查 /stage/_updates")
+        logger.warning(
+            f"[updater] 自动更新已打开：每 60 秒检查 {SRC()}，白名单 {sorted(_allow_list())}"
+        )
 
     async def terminate(self):
         if self._task:
