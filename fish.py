@@ -47,11 +47,20 @@ LEGACY_STATE = settings.PLUGIN_DATA.parent / "fish_core"
 
 
 def _load_config() -> dict:
+    """配置来源：fish_core_config.json 打底，WebUI 面板里填了的值覆盖它。"""
+    cfg = {}
     try:
-        return json.loads(CONFIG_FILE.read_text(encoding="utf-8-sig"))
+        cfg = json.loads(CONFIG_FILE.read_text(encoding="utf-8-sig"))
     except Exception as e:  # noqa: BLE001
         logger.warning(f"[fish] 读取配置失败，用默认值: {e}")
-        return {}
+    try:
+        over = settings.plugin_overrides()
+        if over:
+            cfg.update(over)
+            logger.info(f"[fish] 面板配置覆盖 {len(over)} 项")
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[fish] 合并面板配置失败: {e}")
+    return cfg
 
 
 def _migrate_state(target: str) -> None:
@@ -283,7 +292,11 @@ class Component:
         self.catchup_file = os.path.join(self.state_dir, "catchup.json")
         self.silent_file = os.path.join(self.state_dir, "silent.json")
         self._tts_studio_db = str(self.config.get("tts_studio_db") or "").strip()
-        self._deploy_stage = str(self.config.get("deploy_stage_dir") or "").strip()
+        self._deploy_stage = str(
+            self.config.get("deploy_stage_dir")
+            or settings.bridge_dir()
+            or ""
+        ).strip()
 
         # ---------------- 节流 + 唤醒 ----------------
         self.min_seconds = _num(self.config.get("pace_min_seconds"), 120.0)
@@ -432,7 +445,9 @@ class Component:
 
         # ---------------- 主人指令 ----------------
         self.cmd_enabled = bool(self.config.get("cmd_enabled", True))
-        self.cmd_owner = str(self.config.get("cmd_owner_qq") or "").strip()
+        self.cmd_owner = str(
+            self.config.get("cmd_owner_qq") or settings.owner_qq() or ""
+        ).strip()
         self.cmd_groups = _words(self.config.get("cmd_allow_groups"), ())
         self.recall_silent = bool(self.config.get("cmd_recall_silent", True))
 

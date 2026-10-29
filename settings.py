@@ -86,3 +86,81 @@ def pause_threshold(default: float = 0.5) -> float:
         return float(_c("balance_pause_threshold", default))
     except (TypeError, ValueError):
         return default
+
+
+# --------------------------------------------------------------------------
+# 面板配置 → fish 配置合并
+# 面板里留空的字符串视为“没设置”，自动回退到 fish_core_config.json / 内置默认；
+# 数字和布尔一律以面板为准（schema 里的默认值就是当前生效值）。
+# --------------------------------------------------------------------------
+def _section_items(v):
+    """如果是“分组”，返回它的子项 dict；是叶子则返回 None。
+
+    面板配置树里只要出现 dict 就是分组；schema 里的叶子会带 type/default。
+    """
+    if not isinstance(v, dict):
+        return None
+    items = v.get("items")
+    if isinstance(items, dict):
+        return items
+    if "type" in v or "default" in v:
+        return None
+    return v
+
+
+def _flatten(node: dict, out: dict) -> None:
+    for k, v in node.items():
+        sub = _section_items(v)
+        if sub is None:
+            out[k] = v
+        else:
+            _flatten(sub, out)
+
+
+_SCHEMA_CACHE = None
+
+
+def schema_keys() -> set:
+    """_conf_schema.json 里的所有叶子键名，用来挡掉别的配置混进来。"""
+    global _SCHEMA_CACHE
+    if _SCHEMA_CACHE is not None:
+        return _SCHEMA_CACHE
+    keys = set()
+    try:
+        raw = json.loads((Path(__file__).parent / "_conf_schema.json").read_text(encoding="utf-8"))
+        stack = [raw]
+        while stack:
+            node = stack.pop()
+            if not isinstance(node, dict):
+                continue
+            for k, v in node.items():
+                sub = _section_items(v)
+                if sub is None:
+                    keys.add(k)
+                else:
+                    stack.append(sub)
+    except Exception:
+        keys = set()
+    _SCHEMA_CACHE = keys
+    return keys
+
+
+def plugin_overrides() -> dict:
+    """把面板配置拍平成一维，只返回显式设置过的项。"""
+    flat = {}
+    try:
+        _flatten(_cfg, flat)
+    except Exception:
+        return {}
+    allowed = schema_keys()
+    out = {}
+    for k, v in flat.items():
+        if allowed and k not in allowed:
+            continue
+        if v is None:
+            continue
+        if isinstance(v, str):
+            if not v.strip():
+                continue
+        out[k] = v
+    return out

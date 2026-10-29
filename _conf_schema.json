@@ -1,18 +1,19 @@
 {
   "owner_qq": {
     "type": "int",
-    "description": "主人 QQ（留空则读 fish_core 配置里的 owner_ids）",
+    "description": "主人 QQ（留空/0 则读 fish 配置里的 owner_ids）",
     "default": 0
   },
   "qq_account": {
     "type": "string",
-    "description": "机器人自己的 QQ 号（运维通道重启 QQ 时用来匹配进程，可不填）",
+    "description": "机器人自己的 QQ（运维通道重启 QQ 时匹配进程用，可不填）",
     "default": ""
   },
   "bridge_dir": {
     "type": "string",
-    "description": "桥接目录，用来写报表/收 flag（默认 /stage）",
-    "default": "/stage"
+    "description": "桥接目录，写报表/收运维 flag（默认 /stage）",
+    "default": "/stage",
+    "hint": "不是 Termux+proot 部署就改成你自己的路径，比如宿主机上的一个目录；留空用 /stage。"
   },
   "image_probability": {
     "type": "float",
@@ -21,7 +22,344 @@
   },
   "balance_pause_threshold": {
     "type": "float",
-    "description": "余额低于此值时暂停学梗与复盘",
+    "description": "余额低于此值时暂停学梗与每日复盘",
     "default": 0.5
+  },
+  "唤醒与闸门": {
+    "type": "object",
+    "description": "什么情况下才接话",
+    "items": {
+      "wake_required_for_owner": {
+        "type": "bool",
+        "description": "主人的群聊发言也必须先唤醒",
+        "default": true
+      },
+      "wake_on_at": {
+        "type": "bool",
+        "description": "@ 机器人也算唤醒",
+        "default": true
+      },
+      "wake_owners_only": {
+        "type": "bool",
+        "description": "唤醒词只认主人（关掉则群友说了也认）",
+        "default": false
+      },
+      "wake_words": {
+        "type": "string",
+        "description": "唤醒词，逗号分隔",
+        "default": "",
+        "hint": "留空则沿用 fish 配置里的值；全新安装留空＝只认 @。"
+      },
+      "exempt_wake": {
+        "type": "bool",
+        "description": "主人发言直接豁免，不需要唤醒",
+        "default": true
+      },
+      "wake_window_seconds": {
+        "type": "int",
+        "description": "被叫到之后的跟随窗口（秒）",
+        "default": 60,
+        "hint": "窗口内同一个人继续说都算在跟它说话。"
+      }
+    }
+  },
+  "节流与延迟": {
+    "type": "object",
+    "description": "回复节奏，别像自动机",
+    "items": {
+      "pace_min_seconds": {
+        "type": "int",
+        "description": "同一个人两次回复的最小间隔（秒）",
+        "default": 300
+      },
+      "pace_global_seconds": {
+        "type": "int",
+        "description": "全群两次回复的最小间隔（秒）",
+        "default": 30
+      },
+      "pace_jitter": {
+        "type": "float",
+        "description": "冷却随机浮动比例（0~0.9）",
+        "default": 0.35,
+        "hint": "让间隔别老是整数，避免机械节拍。"
+      },
+      "reply_delay_max": {
+        "type": "float",
+        "description": "群聊命中后最多打多久的字再发（秒）",
+        "default": 0.8
+      },
+      "reply_delay_private_max": {
+        "type": "float",
+        "description": "私聊最多打多久的字再发（秒）",
+        "default": 0.3
+      },
+      "pace_only_group": {
+        "type": "bool",
+        "description": "节流只对群聊生效",
+        "default": true
+      },
+      "merge_window_ms": {
+        "type": "int",
+        "description": "连续消息合并窗口（毫秒）",
+        "default": 800
+      },
+      "merge_private": {
+        "type": "bool",
+        "description": "私聊也做连续消息合并",
+        "default": false
+      }
+    }
+  },
+  "群聊过滤": {
+    "type": "object",
+    "description": "不插嘴的规则",
+    "items": {
+      "skip_group_at_others": {
+        "type": "bool",
+        "description": "这条在 @ 别人时不插话",
+        "default": true
+      },
+      "skip_group_quote_others": {
+        "type": "bool",
+        "description": "这条在回复别人时不插话",
+        "default": true
+      },
+      "group_history_owner_only": {
+        "type": "bool",
+        "description": "群历史只保留跟主人有关的轮次",
+        "default": true
+      },
+      "group_history_owner_names": {
+        "type": "string",
+        "description": "判定“提到主人”的昵称，逗号分隔",
+        "default": "",
+        "hint": "留空则只用主人 QQ 号判断。"
+      },
+      "group_history_keep_recent": {
+        "type": "int",
+        "description": "历史里无条件保留最近多少条",
+        "default": 4
+      },
+      "smart_reply_enabled": {
+        "type": "bool",
+        "description": "智能插话：没人叫也按内容决定要不要接",
+        "default": false,
+        "hint": "打开后由下面几个权重算分，低于阈值就不说话。"
+      },
+      "smart_reply_threshold": {
+        "type": "float",
+        "description": "插话阈值（0~1，越高越安静）",
+        "default": 0.25
+      },
+      "smart_interest_keywords": {
+        "type": "string",
+        "description": "感兴趣的关键词，逗号分隔",
+        "default": "",
+        "hint": "命中会加权，用于“这话值得接”的判断。"
+      },
+      "smart_w_question": {
+        "type": "float",
+        "description": "权重：像在提问",
+        "default": 0.4
+      },
+      "smart_w_relevant": {
+        "type": "float",
+        "description": "权重：跟主人/上文相关",
+        "default": 0.4
+      },
+      "smart_w_interest": {
+        "type": "float",
+        "description": "权重：命中兴趣词",
+        "default": 0.3
+      },
+      "smart_w_bored": {
+        "type": "float",
+        "description": "权重：群聊气氛闷",
+        "default": 0.05
+      },
+      "smart_w_noise": {
+        "type": "float",
+        "description": "权重：纯噪音要扣的分",
+        "default": 0.5
+      },
+      "smart_log_scores": {
+        "type": "bool",
+        "description": "把每次插话打分写进日志",
+        "default": false
+      }
+    }
+  },
+  "静默": {
+    "type": "object",
+    "description": "让它闭嘴的开关",
+    "items": {
+      "mute_words": {
+        "type": "string",
+        "description": "触发安静的关键词，逗号分隔",
+        "default": "",
+        "hint": "留空沿用内置的一大串（停一下/闭嘴/安静…）。"
+      },
+      "unmute_words": {
+        "type": "string",
+        "description": "解除安静的关键词，逗号分隔",
+        "default": "",
+        "hint": "留空沿用内置列表。"
+      },
+      "mute_minutes": {
+        "type": "int",
+        "description": "安静持续多少分钟",
+        "default": 10
+      },
+      "mute_owner_can_wake": {
+        "type": "bool",
+        "description": "安静期间主人 @ 或喊唤醒词仍可唤回",
+        "default": true
+      },
+      "mute_only_group": {
+        "type": "bool",
+        "description": "安静只在群里生效（私聊照常聊）",
+        "default": true
+      },
+      "group_silent": {
+        "type": "bool",
+        "description": "整群禁言开关（开启后群消息直接掐掉）",
+        "default": true
+      },
+      "group_silent_minutes": {
+        "type": "int",
+        "description": "整群禁言时长（分钟）",
+        "default": 10
+      }
+    }
+  },
+  "归档": {
+    "type": "object",
+    "description": "聊天记录留存，供学梗/复盘用",
+    "items": {
+      "archive_private": {
+        "type": "bool",
+        "description": "存私聊",
+        "default": true
+      },
+      "archive_group": {
+        "type": "bool",
+        "description": "存群聊",
+        "default": true
+      },
+      "archive_group_mode": {
+        "type": "string",
+        "description": "群聊存档模式：sampled（抽样）/ all（全存）",
+        "default": "sampled"
+      },
+      "archive_group_daily_cap": {
+        "type": "int",
+        "description": "每个群每天最多存多少条",
+        "default": 300,
+        "hint": "仅 sampled 模式生效。"
+      },
+      "archive_always_keep_senders": {
+        "type": "string",
+        "description": "这些人的发言不受抽样限制（QQ 号，逗号分隔）",
+        "default": ""
+      },
+      "archive_per_day": {
+        "type": "bool",
+        "description": "按天分文件",
+        "default": true
+      },
+      "archive_skip_empty": {
+        "type": "bool",
+        "description": "跳过空文本消息",
+        "default": true
+      },
+      "archive_dir": {
+        "type": "string",
+        "description": "归档目录",
+        "default": "",
+        "hint": "留空＝<AstrBot data>/chatlog。"
+      }
+    }
+  },
+  "掉线补拉": {
+    "type": "object",
+    "description": "QQ 重连那几秒的消息补回来",
+    "items": {
+      "catchup_enabled": {
+        "type": "bool",
+        "description": "开启掉线补拉",
+        "default": true
+      },
+      "catchup_interval": {
+        "type": "int",
+        "description": "检查间隔（秒）",
+        "default": 45
+      },
+      "catchup_max_missed": {
+        "type": "int",
+        "description": "单次最多补几条",
+        "default": 3
+      }
+    }
+  },
+  "语音情境": {
+    "type": "object",
+    "description": "按情绪决定要不要发语音（需装 TTS 插件）",
+    "items": {
+      "tts_context_enabled": {
+        "type": "bool",
+        "description": "开启情境语音",
+        "default": true
+      },
+      "tts_context_keywords": {
+        "type": "string",
+        "description": "情绪关键词，逗号分隔",
+        "default": "",
+        "hint": "留空沿用内置列表（难受/累了/晚安…）。"
+      },
+      "tts_context_fallback": {
+        "type": "float",
+        "description": "没命中情绪词时的兜底概率（0~1）",
+        "default": 0.0
+      },
+      "tts_studio_db": {
+        "type": "string",
+        "description": "TTS 素材库 sqlite 路径",
+        "default": "",
+        "hint": "留空＝不读素材库。"
+      }
+    }
+  },
+  "主人指令": {
+    "type": "object",
+    "description": "群里用文字指挥它",
+    "items": {
+      "cmd_enabled": {
+        "type": "bool",
+        "description": "开启主人指令",
+        "default": true
+      },
+      "cmd_owner_qq": {
+        "type": "string",
+        "description": "指令所属主人 QQ",
+        "default": "",
+        "hint": "留空则用上面的 owner_qq。"
+      },
+      "cmd_allow_groups": {
+        "type": "string",
+        "description": "允许下指令的群（群号，逗号分隔，留空＝不限）",
+        "default": ""
+      },
+      "cmd_recall_silent": {
+        "type": "bool",
+        "description": "指令消息处理后撤回",
+        "default": true
+      },
+      "deploy_stage_dir": {
+        "type": "string",
+        "description": "部署目录（运维通道自更新用）",
+        "default": "",
+        "hint": "留空用 bridge_dir。"
+      }
+    }
   }
 }

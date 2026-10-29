@@ -100,11 +100,15 @@ def _migrate(base: Path) -> None:
     "1.0.0",
 )
 class DshAll(Star):
-    def __init__(self, context: Context):
+    def __init__(self, context: Context, config=None):
         super().__init__(context)
+        # AstrBot 会把本插件的面板配置以 config 传进来；拿不到就退回空配置。
+        self.config = config
         try:
-            settings.set_plugin_config(self.context.get_config())
-        except Exception:  # noqa: BLE001
+            settings.set_plugin_config(dict(config) if config else {})
+            logger.info(f"[baige] 面板配置 {len(config or {})} 项")
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[baige] 读取面板配置失败: {e}")
             settings.set_plugin_config({})
         self.base = Path(StarTools.get_data_dir("astrbot_plugin_baige"))
         self.base.mkdir(parents=True, exist_ok=True)
