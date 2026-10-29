@@ -1,0 +1,27 @@
+{
+  "owner_qq": {
+    "type": "int",
+    "description": "主人 QQ（留空则读 fish_core 配置里的 owner_ids）",
+    "default": 0
+  },
+  "qq_account": {
+    "type": "string",
+    "description": "机器人自己的 QQ 号（运维通道重启 QQ 时用来匹配进程，可不填）",
+    "default": ""
+  },
+  "bridge_dir": {
+    "type": "string",
+    "description": "桥接目录，用来写报表/收 flag（默认 /stage）",
+    "default": "/stage"
+  },
+  "image_probability": {
+    "type": "float",
+    "description": "回复时自动配表情的概率",
+    "default": 0.45
+  },
+  "balance_pause_threshold": {
+    "type": "float",
+    "description": "余额低于此值时暂停学梗与复盘",
+    "default": 0.5
+  }
+}
